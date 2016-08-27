@@ -1,101 +1,137 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+#
 
-from telegram.ext import Updater
-import logging, random, json
+from telegram.ext import Updater, CommandHandler, Job
+import logging, yaml, sys, os
 
 # Enable logging
 logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO)
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG,
+    filename='bot.log',
+    filemode='w',
+)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+notify_period = 10
+file_name = 'bot.log'
+try:
+    with open("config.yml", 'r') as ymlfile:
+        config = yaml.load(ymlfile)
+except BaseException:
+    print "config.yml file is not exists! Please create it first."
+    sys.exit()
 
-wait_list = []
-chat_list = {}
-stats = {}
+if config['token'] == '':
+    print "Please configure your Telegram bot token"
+    sys.exit()
 
-def start(bot, update):
-    if update.message.chat_id in wait_list:
-        bot.sendMessage(update.message.chat_id, text='Я скоро найду вам кого-нибудь, не переживайте :)')
-    else:
-        bot.sendMessage(update.message.chat_id, text='Ищу нужного вам человека...')
-        if len(wait_list) > 0:
-            random.shuffle(wait_list)
-            chat_to_id = wait_list.pop()
+if len(config['files']) == 0:
+    print "Please add some files to the config"
+    sys.exit()
 
-            chat_list[chat_to_id] = update.message.chat_id
-            chat_list[update.message.chat_id] = chat_to_id
+if config['interval'] == 0 or config['interval'] == '':
+    logger.warn('Notify interval is not set. I will send log files every 4 hours')
+    config['interval'] = 4*60*60
 
-            if update.message.chat_id in wait_list:
-                del wait_list[update.message.chat_id]
+# Define a few command handlers. These usually take the two arguments bot and
+# update. Error handlers also receive the raised TelegramError object in error.
+def start(bot, update, job_queue):
+    if update.message.from_user.username not in config['users']:
+        bot.sendMessage(update.message.chat_id,text="Sorry, you are not in the list")
+        return
 
-            bot.sendMessage(update.message.chat_id, text='Вы соединены, скажите "Привет"!')
-        else:
-            bot.sendMessage(update.message.chat_id, text='Пока никого нет, подождите пожалуйста')
-            wait_list.append(update.message.chat_id)
+    bot.sendMessage(
+        update.message.chat_id,
+        parse_mode="Markdown",
+        text=(
+            "Howdy!\n"
+            "Write */echo* to output all configured files,\n"
+            "or */echo *_filename_ _filename2_ ' ' to send only _filename_ and _filename2_ (those files must be defined in the config file)"
+        )
+    )
 
-def end(bot, update):
-    if update.message.chat_id in chat_list:
-        if chat_list[update.message.chat_id] in chat_list:
-            del chat_list[chat_list[update.message.chat_id]]
-        bot.sendMessage(update.message.chat_id, text='Завершаю разговор, надеюсь, вам понравилось. :)')
-        del chat_list[update.message.chat_id]
-    elif update.message.chat_id in wait_list:
-        bot.sendMessage(update.message.chat_id, text='Скоро бы обязательно кто-то нашелся!')
-        wait_list.remove(update.message.chat_id)
+    start_notifications(bot, job_queue, update.message.chat_id)
 
-def help(bot, update):
-    bot.sendMessage(update.message.chat_id, text='Help!')
+def stop(bot, update, job_queue):
+    bot.sendMessage(update.message.chat_id, text="Farewell! I'll stop all timers, but you still can use /echo command")
 
+    stop_notifications(bot, job_queue, update.message.chat_id)
 
-def echo(bot, update):
-    if update.message.chat_id in chat_list:
-        msg = update.message.text
-        statictic(msg)
-        bot.sendMessage(chat_list[update.message.chat_id], text=msg)
+def start_notifications(bot, job_queue, chat_id):
+    m, s = divmod(config['interval'], 60)
+    h, m = divmod(m, 60)
+    interval = "%dh:%02dm:%02ds" % (h, m, s)
 
-def statictic(msg):
-    for word in msg.split(' '):
-        if word in stats:
-            stats[word] += 1
-        else:
-            stats[word] = 1
+    bot.sendMessage(
+        chat_id,
+        parse_mode="Markdown",
+        text="Content of those files will be sent every %s: ```\n%s\n```" % (interval, ' '.join(config['files']))
+    )
+    notification_job = Job(callback_echo, config['interval'], context=chat_id)
+    job_queue.put(notification_job, next_t=0.0)
 
-def get_stats(bot, update):
-    bot.sendMessage(chat_list[update.message.chat_id], text=json.dumps(stats))
+def stop_notifications(bot, job_queue, chat_id):
+    for job in job_queue.jobs():
+        if job.context == chat_id:
+            job.schedule_removal()
+
+def echo_file(bot, chat_id, filename):
+    with open(filename, 'r') as file:
+        log = []
+        while True:
+            log_chunk = file.read(4096)
+
+            if log_chunk == "":
+                break
+
+            log.append(log_chunk)
+
+    bot.sendMessage(chat_id, parse_mode="Markdown", text="*%s*:" % filename)
+    for log_chunk in log:
+        bot.sendMessage(chat_id, parse_mode="Markdown", text="```\n%s\n```" % log_chunk)
+    bot.sendMessage(chat_id, parse_mode="Markdown", text="*End of file %s*" % filename)
+
+def callback_echo(bot, job):
+    for file_name in config['files']:
+        echo_file(bot, job.context, file_name)
+
+def echo(bot, update, args=[]):
+    for file_name in config['files']:
+        if len(args) > 0 and file_name not in args:
+            continue
+
+        echo_file(bot, update.message.chat_id, file_name)
 
 def error(bot, update, error):
     logger.warn('Update "%s" caused error "%s"' % (update, error))
 
 
 def main():
-    # Create the EventHandler and pass it your bot's token.
-    updater = Updater("200483686:AAFUKhTwBiiN0cXWYV3Zu03Cpd9bqAPLrbs")
+    updater = Updater(config['token'])
 
     # Get the dispatcher to register handlers
     dp = updater.dispatcher
 
     # on different commands - answer in Telegram
-    dp.addTelegramCommandHandler("stats", get_stats)
-    dp.addTelegramCommandHandler("start", start)
-    dp.addTelegramCommandHandler("end", end)
-    dp.addTelegramCommandHandler("help", help)
-
-    # on noncommand i.e message - echo the message on Telegram
-    dp.addTelegramMessageHandler(echo)
+    dp.add_handler(CommandHandler("start", start, pass_job_queue=True))
+    dp.add_handler(CommandHandler("stop", stop, pass_job_queue=True))
+    dp.add_handler(CommandHandler("help", start))
+    dp.add_handler(CommandHandler("set", set, pass_args=True))
+    dp.add_handler(CommandHandler("echo", echo, pass_args=True))
 
     # log all errors
-    dp.addErrorHandler(error)
+    dp.add_error_handler(error)
 
     # Start the Bot
     updater.start_polling()
 
-    # Run the bot until the you presses Ctrl-C or the process receives SIGINT,
+    # Block until the you presses Ctrl-C or the process receives SIGINT,
     # SIGTERM or SIGABRT. This should be used most of the time, since
     # start_polling() is non-blocking and will stop the bot gracefully.
     updater.idle()
+
 
 if __name__ == '__main__':
     main()
