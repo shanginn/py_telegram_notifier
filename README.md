@@ -25,7 +25,7 @@ Put your HTTP API token in config.
 
 Be sure to add your username to the `users` list, otherwise bot will not respond to your actions.
 
-Also you might want to change files list - by default bot will send you content of the `.gitignore` and `config.yml` files.
+Also you might want to change `files` list - by default bot will send you content of the `.gitignore` and `config.yml` files.
 
 ## Run
 
@@ -37,5 +37,6 @@ To enable notifications every `interval`-seconds write `/start` into your bots c
 
 ## Disclaimer
 
-This code was written in 2 hours only as a proof of concept :)
+This code was written in 2 hours only as proof of concept :)
+
 But if you have any questions feel free to contact me.
