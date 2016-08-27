@@ -14,8 +14,9 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-notify_period = 10
-file_name = 'bot.log'
+
+
+# Trying to read config
 try:
     with open("config.yml", 'r') as ymlfile:
         config = yaml.load(ymlfile)
@@ -47,16 +48,15 @@ def start(bot, update, job_queue):
         parse_mode="Markdown",
         text=(
             "Howdy!\n"
-            "Write */echo* to output all configured files,\n"
-            "or */echo *_filename_ _filename2_ ' ' to send only _filename_ and _filename2_ (those files must be defined in the config file)"
+            "Write */cat* to output all configured files,\n"
+            "or */cat *_filename_ _filename2_ ' ' to send only _filename_ and _filename2_ (those files must be defined in the config file)"
         )
     )
 
     start_notifications(bot, job_queue, update.message.chat_id)
 
 def stop(bot, update, job_queue):
-    bot.sendMessage(update.message.chat_id, text="Farewell! I'll stop all timers, but you still can use /echo command")
-
+    bot.sendMessage(update.message.chat_id, text="Farewell! I'll stop all timers, but you still can use /cat command")
     stop_notifications(bot, job_queue, update.message.chat_id)
 
 def start_notifications(bot, job_queue, chat_id):
@@ -69,7 +69,8 @@ def start_notifications(bot, job_queue, chat_id):
         parse_mode="Markdown",
         text="Content of those files will be sent every %s: ```\n%s\n```" % (interval, ' '.join(config['files']))
     )
-    notification_job = Job(callback_echo, config['interval'], context=chat_id)
+
+    notification_job = Job(callback_cat, config['interval'], context=chat_id)
     job_queue.put(notification_job, next_t=0.0)
 
 def stop_notifications(bot, job_queue, chat_id):
@@ -77,32 +78,28 @@ def stop_notifications(bot, job_queue, chat_id):
         if job.context == chat_id:
             job.schedule_removal()
 
-def echo_file(bot, chat_id, filename):
-    with open(filename, 'r') as file:
-        log = []
+def cat_file(bot, chat_id, filename):
+    with open(filename, 'rb') as file:
+        data = []
         while True:
-            log_chunk = file.read(4096)
-
-            if log_chunk == "":
+            data_chunk = file.read(4096)
+            if not data_chunk:
                 break
-
-            log.append(log_chunk)
-
+            data.append(data_chunk)
     bot.sendMessage(chat_id, parse_mode="Markdown", text="*%s*:" % filename)
-    for log_chunk in log:
-        bot.sendMessage(chat_id, parse_mode="Markdown", text="```\n%s\n```" % log_chunk)
+    for data_chunk in data:
+        bot.sendMessage(chat_id, parse_mode="Markdown", text="```\n%s\n```" % data_chunk)
     bot.sendMessage(chat_id, parse_mode="Markdown", text="*End of file %s*" % filename)
 
-def callback_echo(bot, job):
+def callback_cat(bot, job):
     for file_name in config['files']:
-        echo_file(bot, job.context, file_name)
+        cat_file(bot, job.context, file_name)
 
-def echo(bot, update, args=[]):
+def cat(bot, update, args=[]):
     for file_name in config['files']:
         if len(args) > 0 and file_name not in args:
             continue
-
-        echo_file(bot, update.message.chat_id, file_name)
+        cat_file(bot, update.message.chat_id, file_name)
 
 def error(bot, update, error):
     logger.warn('Update "%s" caused error "%s"' % (update, error))
@@ -118,8 +115,8 @@ def main():
     dp.add_handler(CommandHandler("start", start, pass_job_queue=True))
     dp.add_handler(CommandHandler("stop", stop, pass_job_queue=True))
     dp.add_handler(CommandHandler("help", start))
-    dp.add_handler(CommandHandler("set", set, pass_args=True))
-    dp.add_handler(CommandHandler("echo", echo, pass_args=True))
+    dp.add_handler(CommandHandler("cat", cat, pass_args=True))
+    # dp.add_handler(CommandHandler("set", set, pass_args=True))
 
     # log all errors
     dp.add_error_handler(error)
