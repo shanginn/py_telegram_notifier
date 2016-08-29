@@ -2,6 +2,8 @@
 
 This is a simple Telegram Bot that will send content of files to your Telegram chat.
 
+Article in russian about this bot: http://shanginn.ru/telegram-bot-notifier/
+
 ## Requirements
 
 - Python 2.7
@@ -35,8 +37,22 @@ python bot.py
 
 To enable notifications every `interval`-seconds write `/start` into your bots chat window.
 
+## TODO
+
+I have ideas about some neat features, that could be implementet, but I don't have time for this, so feel free to do pull requests :)
+Really powerful thing would be ability to edit config file from chat, but you need to do password protection first, because such access is very unsecure.
+
+* `/unlock_config <password>` - enable ability to edit config from chat. After sending this command you must delete message with password
+* `/set_interval <interval>` - change interval of the messages
+* `/add_file <path>` and `/remove_file <path>` - add\\remove files from allowed files list
+* `/watch <path>` - watch the file and send changes in realtime. Ofc you need `/unwatch <path>`
+* `/lock_config` - after all this you need to lock config file again(and after some time, for example, 5 minutes you must lock it automatically)
+* `/head` and `/tail` - \*nix-like `head` and `tail` commands.
+
 ## Disclaimer
 
-This code was written in 2 hours only as proof of concept :)
+This code was written in several hours only as proof of concept :)
 
 But if you have any questions feel free to contact me.
+
+Enjoy! :)
